@@ -1,0 +1,126 @@
+:_mod-docs-content-type: ASSEMBLY
+[id="psap-overview"]
+= {product-title} Scalability and Performance overview
+include::_attributes/common-attributes.adoc[]
+:context: psap-overview
+
+toc::[]
+
+ifndef::openshift-dedicated,openshift-rosa[]
+This section provides information on recommended performance and scalability practices, reference design specifications, optimization and low latency tuning. To help ensure the scalability and performance of your applications and infrastructure, {product-title} offers the following components:
+
+* Recommended performance and scalability practices
+* Reference design specifications
+* Planning your environment according to object maximums
+* Recommended practices for {ibm-z-title} and {ibm-linuxone-title}
+* Using the Node Tuning Operator
+* Using CPU Manager and Topology Manager
+* Scheduling NUMA-aware workloads
+* Optimizing storage, routing, networking and CPU usage
+* Managing bare metal hosts and events
+* What are huge pages and how are they used by apps
+* Low latency tuning for improving cluster stability and partitioning workload
+* Using the Node Observability Operator
+
+// endif::openshift-dedicated,openshift-rosa[]
+
+If you need information on the supported platforms for installation, please refer to xref:../installing/overview/index.html#supported-platforms-for-openshift-clusters_ocp-installation-overview
+
+To get support on these topics, refer to the section of the documentation entitled Getting support https://docs.openshift.com/container-platform/latest/support/getting-support.html
+
+To find information on {ocp} technical support, please refer to xref:../container-platform/4.16/support/index.html
+
+====
+NOTE
+Operators described in this section have release cycles that are separate from the core {ocp} release cycles. The release schedule for the Node Observability Operator can be found here https://access.redhat.com/support/policy/updates/openshift_operators
+====
+
+[id="control-plane-index"]
+== Recommended performance and scalability practices for cloud providers
+Cloud providers have unique environments that may differ from local bare metal deployments, particularly since user costs are billed by the cpu cycle. Scaling of cluster resources then requires a balance between desired performance and cost. This section features recommendations for how to scale up a cluster hosted by cloud providers.
+
+For more information, see Recommended performance and scalability practices
+
+=== Recommended infrastructure practices
+Guidelines for node sizing as related to the number of nodes or namespaces, in CPU cores and GB of memory. These recommendations apply only to infrastructure nodes hosting Monitoring, Ingress and Registry infrastructure components installed during cluster creation.
+
+For more information, see Recommended infrastructure practices
+
+=== Recommended etcd practices
+`etcd` writes persistent data to disk, therefore `etcd` performance depends heavily on block device storage for performance. Slow disks and disk activity from other processes can cause long fsync latencies. This section provides guidance on how to create and use block device storage for `etcd`.
+
+For more information, see Recommended 'etcd' practices
+
+[id="Reference-Design-index"]
+== Telco reference design specifications
+For your consideration, two Telco cluster examples are provided, the RAN DU reference design and the core reference design. These configurations use the OpenShift 4.16 release along with centralized data plane functions. These are tested and supported configurations providing reliable and repeatable performance.
+
+For more information, see Telco reference design specifications
+
+[id="plan-env-obj-maximums"]
+== Planning your environment according to object maximums
+Some workloads require very large clusters. This section provides guidelines that reference very large clusters with very large numbers of components. The maximums are tested maximums and not absolute cluster maximums. An example scenario is provided with specifications for each cluster component. Specific information is given for the AWS cloud platform, IBM Power platform and IBM Z platform. Finally, consideration is given to tested cluster maximums and planning for application requirements.
+
+For more information, see Planning your environment according to object maximums
+
+[id="recommend-ibm-z-linuxone"]
+== Recommended practices for {ibm-z-title} and {ibm-linuxone-title}
+Requirements unique to the {ibm-z-title} and {ibm-linuxone-title} are discussed. Unique architecture requirements are discussed that might not apply to other platforms.  These practices apply to z/VM and Red Hat Enterprise Linux (RHEL) KVM installations. An example Node Tuning Operator specification is provided.
+
+For more information, see Recommended practices for {ibm-z-title} and {ibm-linuxone-title}
+
+[id="using-node-tune-op"]
+== Using the Node Tuning Operator
+Most high performance applications require some level of kernel tuning. The Node Tuning Operator provides a unified managerment interface for control of the TuneD daemon and achieves low latency performance with the Performance Profile controller. The TuneD daemon provides node level settings which can be rolled back based on certain events.
+
+For more information, see Using the Node Tuning Operator
+
+[id="cpu-mgr-and-top-mgr"]
+== Using CPU Manager and Topology Manager
+CPU Manager and Topology manager help with workloads that require maximum CPU time, sensitive to processor cache misses, low-latency network applications or processes that must share a single processor cache. Topology Manager can also configure workloads for use with Topology Manager. To use Topology manager, you must configure CPU Manager with the `static` policy.
+
+For more information, see  Using CPU Manager and Topology Manager
+
+[id="sked-numa-work"]
+== Scheduling NUMA-aware workloads
+NUMA requires specific performance considerations in order to achieve high workload performance. This section describes NUMA-aware scheduling and diagrams the relationships. Installation and use of the NUMA Resources Operator is explained.
+
+For more information, see Scheduling NUMA-aware workloads
+
+[id="stor-route-net"]
+== Optimizing storage, routing, networking and CPU usage
+This section explains how to optimize storage, routing, networking and CPU usage for clusters. Block, file and object storage are all discussed. Note that the Mount namespace encapsulation feature is a Technology Preview feature.
+
+For more information, see Scalability and performance optimization
+
+[id="man-bare-metal-host"]
+== Managing bare metal hosts and events
+Bare metal installation of {ocp} provides the  `machine` and `machineset` custom resources for managing bare metal nodes. These custom resources are created automatically. Management of bare metal hosts and custom resources can be done with the {ocp} web console. Monitoring bare metal events with the Bare Metal Event Relay are explained.
+
+For more information, see Managing bare metal hosts and events.
+
+[id="yuge-pages"]
+== What are huge pages and how are they used by apps
+A huge page is a memory page that is larger than 4Ki. Huge pages can reduce the occurrence of misses in the Translation Lookaside Buffer (TLB). Those buffer misses can require loading of new pages and the associated latency of loading. Huge pages can avoid that latency. If, on the other hand, huge pages are not appropriate for the workload, this section explains how to disable them.
+
+For more information, see What huge pages do and how they are consumed by apps
+
+[id="low-lat-stab-part"]
+== Low latency tuning for improving cluster stability and partitioning workload
+Low latency is explained along with methods for using the Node Tuning Operator and the `PerformanceProfile` to fine tune performance settings for the workload. Only minimal tuning is needed for the typical data center, while clusters running in the Far edge can benefit from low latency tuning.
+
+For more information, see Low latency tuning
+
+[id="node-observ-op"]
+== Using the Node Observability Operator
+The Node Observability Operator provides a consistent method for measuring and understanding {ocp} performance under varying workloads by collecting and storing both CRI-O and Kubelet metrics information. You can query profiling data needed to analyze performance trends in {ocp}. To enable, you configure the `type` field in the custom resource definition. This section provides detailed explanation of the Node Observability Operator.
+
+====
+NOTE:
+The Node Observability Operator is a Technology Preview feature.
+====
+
+For more information, see Using the Node Observability Operator
+
+// endif::[]
+
