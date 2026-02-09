@@ -93,14 +93,15 @@ spec:
       serviceAccountName: spo-deploy-test
       securityContext:
         seLinuxOptions:
-          type: nginx-secure_.process <1>
+          type: nginx-secure_.process
       containers:
       - name: nginx-unpriv
         image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
         ports:
         - containerPort: 8080
 ----
-<1> The `.seLinuxOptions.type` must exist before the Deployment is created.
+where:
+`type`::The `.seLinuxOptions.type` must exist before the Deployment is created.
 +
 [NOTE]
 ====

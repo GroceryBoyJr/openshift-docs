@@ -33,13 +33,16 @@ metadata:
   name: nginx-binding
 spec:
   profileRef:
-    kind: {kind} <1>
-    name: profile <2>
-  image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21 <3>
+    kind: {kind}
+    name: profile
+  image: quay.io/security-profiles-operator/test-nginx-unprivileged:1.21
 ----
-<1> The `kind:` variable refers to the kind of the profile.
-<2> The `name:` variable refers to the name of the profile.
-<3> You can enable a default security profile by using a wildcard in the image attribute: `image: "*"`
++
+where:
+`kind:`:: variable refers to the kind of the profile.
+`name:`:: variable refers to the name of the profile.
+`image:`:: You can enable a default security profile by using a wildcard in the image attribute: `image: "*"`
+
 +
 [IMPORTANT]
 ====
