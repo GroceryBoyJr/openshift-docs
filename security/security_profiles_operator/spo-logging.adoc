@@ -1,0 +1,287 @@
+:_mod-docs-content-type: ASSEMBLY
+[id="spo-audit-logging"]
+= Security Profiles Operator Audit Logging
+include::_attributes/common-attributes.adoc[]
+:context: spo-audit
+
+toc::[]
+
+
+== Security Profiles Operator audit logging
+
+[role="_abstract"]
+The audit logging capability provided in {product-title} Security Profiles Operator (SPO) 0.10.0 produces audit logging that operates on a container or on a host node. The new SPO audit capability provides logging of container activities in an RHCOS container back to the hosting cluster. With audit logging, you can correlate an OpenShift user with their direct actions on the node during `oc exec`, `oc rsh`, and `oc debug` sessions. The audit logging results in detailed logs in a JSON Lines format. 
+
+
+== The Advantage of SPO audit logging
+
+`kubectl exec`, `oc-exec`, `oc-rsh` and `oc debug` do not pass user authentication details into the exec session on the container, making it hard to audit user actions. The audit logger in SPO addresses this with mutating webhooks that inject the request UID from the Kubernetes API server as an environment variable into the session. Every request to the API server including the request to start a new exec session has a request UID. This request ID is then logged by the SPO audit log enricher. The request ID is used to correlate the activity with the API server audit logs, providing an audit trail within the node.
+
+[NOTE]
+----
+The Security Profiles Operator supports only Red Hat Enterprise Linux CoreOS (RHCOS) worker nodes for 4.18 and lower releases. Red Hat Enterprise Linux (RHEL) nodes are not supported.
+----
+
+
+== Migrating to Security Profiles Operator 0.10.0
+
+To use the capability provided by the 0.10.0 release, first-time installation of version 0.10.0 does not require migration. Also, if you are currently on SPO 0.9.0, you can directly upgrade to SPO 0.10.0. 
+
+If you are using versions of SPO before 0.9.0, you must perform a migration procedure to install versions 0.9.0 or 0.10.0. This migration procedure is explained in (link here). The migration procedure converts SPO to operate at the namespace level instead of the cluster level, which is needed for the new capability.
+
+[IMPORTANT]
+----
+Do not attempt to upgrade directly from SPO versions before to 0.9.0 either to 0.9.0 or 0.10.0 if you are currently running SPO. You must perform the migration procedure to convert SPO from operating at the cluster level, to operating at the namespace level. This change is needed to enable Audit Logging of events inside the worker node. This capability is not provided for control nodes since SPO does not operate on `etcd` nodes. 
+----
+
+
+== The Audit JSON log enricher
+
+Similar to the log enricher feature, audit JSON log enricher watches `auditd` (/var/log/audit/audit.log) or the syslog (/var/log/syslog) and generates a audit log in JSON lines format. 
+
+Each JSON line will include the following:
+
+* Timestamp: When the activity happened, shown in a standard ISO format
+* Executable Name: The name of the program that was run (e.g., bash, ls).
+* Command Line Arguments (cmdline): The extra instructions given when the program was started (e.g., ls -l /home).
+* User and Group IDs (UID/GID): The identification numbers of the system user who ran the program.
+* System Calls (syscalls): A list of system calls (syscalls) that the process made
+
+This log format and configuration is similar to how Kubernetes records audit logs. This is useful for:
+
+* Seeing what users and automated processes are doing inside a pod.
+* Tracking when someone uses commands such as `kubectl exec` to enter a running container and run commands or scripts.
+* Monitoring activities in debug containers where users might run various tools.
+
+
+== Installation of Security Profiles Operator
+
+To use SPO, first install cert-manager (optional in some environments) and then SPO. After successful installation, configure the operator to store logs locally on the host, external volume or output to standard output. 
+
+For installation of the cert-manager Operator, refer to link:https://docs.redhat.com/en/documentation/openshift_container_platform/latest/html/security_and_compliance/cert-manager-operator-for-red-hat-openshift#cert-manager-operator-about
+
+For installation of SPO versions 0.9.0 or 0.10.0, refer to link:https://docs.redhat.com/en/documentation/openshift_container_platform/latest/html/security_and_compliance/security-profiles-operator#spo-installing_spo-enabling[Installing the Security Profiles Operator]
+
+
+== Enabling the JSON log enricher
+
+Enable the JSON Enricher and specify a set of filters to only log user activity. 
+
+kubectl -n security-profiles-operator patch spod spod --type=merge -p '{"spec":{"enableJsonEnricher":true}}'
+
+The audit JSON log enricher uses eBPF as a supplemental data source. While processing `auditd` logs from /var/log/audit/audit.log, the enricher attempts to fetch ephemeral data from /proc/<pid> directories. Due to a race condition, these files might be deleted before they can be read. To ensure data completeness, the enricher falls back to fetching the necessary information from eBPF whenever it's not found in /proc/<pid>.
+
+
+== Create a `SeccompProfile` and a `ProfileBinding`
+
+Finally, create a `SeccompProfile` to log specific syscalls such as `execve` and clone a `ProfileBinding` to automatically apply this profile to pods in a target namespace.
+
+ Create a file (e.g., profile1.yaml) with the following content:
+
+ apiVersion: security-profiles-operator.x-k8s.io/v1beta1
+kind: SeccompProfile
+metadata:
+  name: profile1
+spec:
+  defaultAction: SCMP_ACT_ALLOW
+  syscalls:
+  - action: SCMP_ACT_LOG
+    names:
+      - execve
+      - clone
+      - getpid
+
+
+This profile allows all normal actions (defaultAction: SCMP_ACT_ALLOW). It specifically tells the system to log when a process tries to run a new program (execve), create a new process (clone), or get its own process ID (getpid). These actions often indicate user interaction within a pod.
+
+== Apply the `seccomp` profile:
+
+ Use the kubectl apply command to create this profile in your cluster:
+
+ kubectl apply -f profile1.yaml
+
+
+== SPO Must Use privileged `seccomp` profile
+
+When using kubectl debug for node debugging, a privileged pod may be created for host file system access, which can introduce differences in behavior based on the container runtime. For the CRI-O runtime, a specific feature is needed to apply a seccomp profile to a privileged container.
+
+With CRI-O versions 1.33 and newer, a feature was introduced to “allow seccomp profiles for privileged containers.” This allows you to apply the secomp profile we created to the cri-o configuration. The key is to configure the CRI-O runtime to use the profile by passing an additional flag.
+
+To do this, you must add the flag –privileged-seccomp-profile to the CRI-O runtime configuration. This step ensures that even privileged debugging pods are subject to the secomp profile’s logging, maintaining complete audit coverage.
+
+
+== Bind the profile to a namespace
+
+This will automatically apply the profile to new pods in the default namespace. Create a file named image_sec_comp.yaml:
+
+apiVersion: security-profiles-operator.x-k8s.io/v1alpha1
+kind: ProfileBinding
+metadata:
+  namespace: default
+  name: all-pod-binding
+spec:
+  profileRef:
+    kind: SeccompProfile
+    name: profile1
+  image: "*"
+
+Apply the binding and label the namespace to activate it:
+
+kubectl apply -f image_sec_comp.yaml
+kubectl label ns default spo.x-k8s.io/enable-binding=true
+
+== Create a pod using the profile
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-pod
+  labels:
+    app: my-app
+spec:
+  securityContext:
+    seccompProfile:
+      type: Localhost
+      localhostProfile: operator/profile1.json
+  containers:
+    - name: nginx
+      image: quay.io/security-profiles-operator/test-nginx:1.19.1
+
+* type: Localhost means you're using a profile you've defined in the cluster.
+
+* localhostProfile: operator/profile1.json tells the pod to use the profile1 you created. The operator/ part indicates where the Security Profiles Operator stores these profiles.
+
+== Apply the pod definition
+
+Create the pod using kubectl apply: 
+
+ kubectl apply -f my-pod.yaml
+
+
+== Monitor the Audit Logs:
+
+There are two ways to monitor audit logs generated by the json-enricher container:
+
+* To monitor the audit log tail:
+
+kubectl -n security-profiles-operator logs --since=1m --selector name=spod -c json-enricher --max-log-requests 6 -f
+
+* To monitor the audit log file:
+
+(NOTE: are commands missing here?)
+
+The audit log file specified in the auditLogPath is written to the node's file system where the pod is running. To monitor or inspect the audit logs, you must access the node directly and check the file at the specified path (e.g., /tmp/logs/audit1.log).
+
+To monitor or inspect the audit logs, you need to identify the node on which the pod is scheduled:
+
+kubectl get pod my-pod -o wide
+
+SSH to a node and view the audit log:
+
+sudo ssh core@<node-name>
+cat /tmp/logs/audit1.log
+
+By following above steps, you can enable and monitor audit logs in JSON lines format for your Kubernetes pods, giving you better visibility into their activities.
+
+== Auditing node debugging sessions
+
+To audit kubectl debug sessions, run the following command. The activity will be logged to the same file.
+
+kubectl debug node/127.0.0.1 -it --image=ubuntu -- bash
+
+root@linux:/# touch demonodedebug
+
+root@linux:/# exit
+
+== Correlate with Kubernetes audit logs
+
+Use the requestUID from the SPO log to find the corresponding API server log entry, confirming who initiated the session.
+
+cat /tmp/kube-apiserver-audit.log | grep <requestUID>
+
+== Enable privileged `seecomp` profiles for CRI-O
+
+If you are using the CRI-O runtime, you must configure it to allow Seccomp profiles on privileged containers.
+Add the following flag to your CRI-O runtime configuration:
+
+--privileged-seccomp-profile=/var/lib/kubelet/seccomp/operator/profile1.json
+
+Note: The --privileged-seccomp-profile flag is available starting with OCP 4.20 and later.
+
+For example, ssh into target node:
+
+ssh core@<node-ip-address>
+
+# ls /var/lib/kubelet/seccomp/operator/
+kubelet-config.json  profile1.json
+
+# systemctl stop kubelet
+# systemctl stop crio
+# echo "CRIO_CONFIG_OPTIONS=--privileged-seccomp-profile=/var/lib/kubelet/seccomp/operator/profile1.json" > /etc/sysconfig/crio
+# systemctl start kubelet
+# systemctl start crio
+
+== Correlating with API Server Audit Log
+
+By default, when you use kubectl exec to access a pod or container, Kubernetes doesn't pass the user's authentication details into that session's environment. This means JSON Log Enricher can't include "who did what" information for exec commands. The uid, gid recorded will map to the system user which in most cases would be the root user.
+
+To address this, the JSON Log Enricher relies on a mutating webhooks (execmetadata.spo.io and nodedebuggingpod.spo.io). These webhook injects the exec request UID as an environment variable into the exec session. Now, when the administrator enables audit logging on the API server, the webhooks will add an audit annotation, SPO_EXEC_REQUEST_UID. The API server audit log will contain this information. This request ID will also be available in the JSON lines produced by the JSON Log Enricher, specifically within the requestUID field.
+
+By default, these webhooks are enabled for all the namespaces with JSON Log Enricher is enabled. To reduce the scope of this webhook you can disable it for certain namespaces.
+
+Edit the spod configuration:
+kubectl edit spod spod -n security-profiles-operator
+
+Add webhookOptions to the spec:
+
+Locate the spec: section and add the following webhookOptions block. This will tell the webhook to apply to a specific namespaces
+# ... (rest of your spod configuration)
+spec:
+  webhookOptions:
+    - name: execmetadata.spo.io # or nodedebuggingpod.spo.io
+      namespaceSelector:
+      #...add rules
+# ...
+
+After saving your changes, the operator will reconfigure the mutating webhook, allowing request details to be passed into kubectl exec sessions cluster-wide.
+
+[NOTE]
+----
+This webhook injects the environment variable SPO_EXEC_REQUEST_UID into your exec request. If a container in your Pod already defines an environment variable with this exact name, the webhook's injected value will override it for this exec session.
+----
+
+When you use `kubectl debug node/<node-name>`, the `nodedebuggingpod.spo.io` webhook automatically injects the `SPO_EXEC_REQUEST_UID` environment variable into the debug pod.
+
+This webhook primarily identifies kubectl debug pods by the label app.kubernetes.io/managed-by: "kubectl-debug", which is added by the kubectl client. Because this label might vary across different Kubernetes client implementations (e.g., oc debug in OpenShift uses debug.openshift.io/managed-by: "oc-debug"), you may need to configure additional webhookOptions to ensure the webhook catches all relevant debug pods.
+
+For example, to include oc debug pods:
+
+# ... (rest of your spod configuration)
+spec:
+  webhookOptions:
+    - name: nodedebuggingpodmetada.spo.io
+      objectSelector:
+        matchLabels: # Use matchLabels for exact matching
+          debug.openshift.io/managed-by: "oc-debug"
+# ... other webhook rule details like rules, clientConfig, etc.
+
+
+== Performance considerations
+
+It is important to consider the performance cost of using seccomp profiles for extensive logging. SPO is designed to minimize this impact by primarily logging only process creations and handling them asynchronously. This approach helps prevent logging from becoming a bottleneck on your nodes.
+
+The feature uses eBPF as a supplemental data source. While it’s possible for eBPF to be used as a primary data source for this type of logging, that functionality isn’t currently a configurable feature within the operator. For most use cases, the default asynchronous, process-creation-focused logging approach provides an excellent balance between security visibility and cluster performance.
+
+
+== Troubleshooting
+Don't we already have a Troubleshooting section? Refer to it here and suppliment that section if needed.
+
+== Uninstalling
+Refer to relevant section in docs
+
+[role="_additional-resources"]
+[id="additional-resources_spo-selinux"]
+== Additional resources
+
+* xref:../../security/security_profiles_operator/spo-advanced.adoc#spo-log-enricher_spo-advanced[Using the log enricher]
+* xref:../../security/security_profiles_operator/spo-understanding.adoc#spo-about_spo-understanding[About security profiles]
